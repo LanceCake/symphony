@@ -120,7 +120,24 @@ defmodule SymphonyElixirWeb.DashboardLive do
             </div>
           </div>
 
-          <pre class="code-panel"><%= pretty_value(@payload.rate_limits) %></pre>
+          <div id="rate-limits" style="display: grid; gap: 1.25rem;">
+            <%= if rate_windows(@payload[:rate_limits]) == [] do %>
+              <p class="empty-state">Rate-limit information unavailable.</p>
+            <% else %>
+              <article :for={window <- rate_windows(@payload[:rate_limits])}>
+                <h3 class="metric-label"><%= window.label %></h3>
+                <%= if window.used != nil do %>
+                  <p class="metric-detail numeric"><%= window.used %>% used · <%= 100 - window.used %>% remaining</p>
+                  <div role="progressbar" aria-label={window.label <> " usage"} aria-valuemin="0" aria-valuemax="100" aria-valuenow={window.used} aria-valuetext={"#{window.used}% used, #{100 - window.used}% remaining"} style="height: 0.75rem; background: var(--border, #e2e8f0); border-radius: 999px; overflow: hidden;">
+                    <div style={"height: 100%; width: #{window.used}%; background: var(--accent, #2563eb); border-radius: inherit;"}></div>
+                  </div>
+                <% else %>
+                  <p class="metric-detail">Usage unavailable.</p>
+                <% end %>
+                <p class="metric-detail"> <%= reset_description(window.reset, @now) %></p>
+              </article>
+            <% end %>
+          </div>
         </section>
 
         <section class="section-card">
@@ -441,6 +458,43 @@ defmodule SymphonyElixirWeb.DashboardLive do
     Process.send_after(self(), :runtime_tick, @runtime_tick_ms)
   end
 
-  defp pretty_value(nil), do: "n/a"
-  defp pretty_value(value), do: inspect(value, pretty: true, limit: :infinity)
+  defp rate_windows(limits) do
+    for {key, fallback} <- [{:primary, "Primary window"}, {:secondary, "Secondary window"}],
+        window = rate_field(limits, [key, Atom.to_string(key)]),
+        is_map(window) do
+      used = rate_field(window, [:usedPercent, "usedPercent", :used_percent, "used_percent"])
+      duration = rate_field(window, [:windowDurationMins, "windowDurationMins", :window_duration_mins, "window_duration_mins"])
+
+      %{
+        label: window_label(duration, fallback),
+        used: if(is_number(used), do: min(max(used, 0), 100), else: nil),
+        reset: rate_field(window, [:resetsAt, "resetsAt", :resets_at, "resets_at"])
+      }
+    end
+  end
+
+  defp rate_field(map, keys) when is_map(map), do: Enum.find_value(keys, &Map.get(map, &1))
+  defp rate_field(_map, _keys), do: nil
+
+  defp window_label(10_080, _fallback), do: "Weekly limit"
+
+  defp window_label(minutes, _fallback) when is_integer(minutes) and minutes > 0 do
+    if rem(minutes, 60) == 0, do: "#{div(minutes, 60)}-hour limit", else: "#{minutes}-minute limit"
+  end
+
+  defp window_label(_minutes, fallback), do: fallback
+
+  defp reset_description(timestamp, now) when is_integer(timestamp) do
+    case DateTime.from_unix(timestamp) do
+      {:ok, reset} ->
+        seconds = max(DateTime.diff(reset, now, :second), 0)
+        countdown = if seconds == 0, do: "reset due", else: "in #{div(seconds, 86_400)}d #{div(rem(seconds, 86_400), 3_600)}h #{div(rem(seconds, 3_600), 60)}m #{rem(seconds, 60)}s"
+        "Resets #{Calendar.strftime(reset, "%b %d, %Y at %H:%M:%S UTC")} (#{countdown})"
+
+      _ ->
+        "Reset time unavailable."
+    end
+  end
+
+  defp reset_description(_timestamp, _now), do: "Reset time unavailable."
 end
