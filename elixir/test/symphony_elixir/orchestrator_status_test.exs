@@ -467,6 +467,33 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     snapshot = GenServer.call(pid, :snapshot)
     assert snapshot.rate_limits == rate_limits
+
+    camel_case_limits = %{
+      "limitId" => "codex",
+      "limitName" => nil,
+      "primary" => %{"usedPercent" => 25, "windowDurationMins" => 300, "resetsAt" => 1_900_000_000},
+      "secondary" => %{"usedPercent" => 50, "windowDurationMins" => 10_080, "resetsAt" => 1_900_100_000},
+      "credits" => %{"hasCredits" => true, "unlimited" => false, "balance" => "10.00"},
+      "planType" => "plus"
+    }
+
+    for limits <- [camel_case_limits, Map.new(camel_case_limits, fn {key, value} -> {String.to_atom(key), value} end)] do
+      send(
+        pid,
+        {:codex_worker_update, issue_id,
+         %{
+           event: :notification,
+           payload: %{
+             "method" => "account/rateLimits/updated",
+             "params" => %{"rateLimits" => limits}
+           },
+           timestamp: DateTime.utc_now()
+         }}
+      )
+
+      assert GenServer.call(pid, :snapshot).rate_limits == limits
+      assert SymphonyElixirWeb.Presenter.state_payload(orchestrator_name, 1_000).rate_limits == limits
+    end
   end
 
   test "orchestrator token accounting prefers total_token_usage over last_token_usage in token_count payloads" do

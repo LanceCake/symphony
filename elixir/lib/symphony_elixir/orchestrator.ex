@@ -1849,8 +1849,12 @@ defmodule SymphonyElixir.Orchestrator do
     limit_id =
       Map.get(payload, "limit_id") ||
         Map.get(payload, :limit_id) ||
+        Map.get(payload, "limitId") ||
+        Map.get(payload, :limitId) ||
         Map.get(payload, "limit_name") ||
-        Map.get(payload, :limit_name)
+        Map.get(payload, :limit_name) ||
+        Map.get(payload, "limitName") ||
+        Map.get(payload, :limitName)
 
     has_buckets =
       Enum.any?(

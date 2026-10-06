@@ -194,6 +194,48 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
     Snapshot.assert_dashboard_snapshot!("credits_unlimited", render_snapshot(snapshot_data, 42.0))
   end
 
+  test "dashboard renders camelCase rate limits and preserves snake_case compatibility" do
+    camel_case_limits = %{
+      "limitId" => "codex",
+      "limitName" => nil,
+      "primary" => %{"usedPercent" => 25, "windowDurationMins" => 300, "resetsAt" => 1_900_000_000},
+      "secondary" => %{"usedPercent" => 50, "windowDurationMins" => 10_080, "resetsAt" => 1_900_100_000},
+      "credits" => %{"hasCredits" => true, "unlimited" => false, "balance" => "10.00"},
+      "planType" => "plus"
+    }
+
+    snake_case_limits = %{
+      limit_name: "codex",
+      primary: %{used_percent: 25, window_duration_mins: 300, resets_at: 1_900_000_000},
+      secondary: %{used_percent: 50, window_duration_mins: 10_080, resets_at: 1_900_100_000},
+      credits: %{has_credits: true, unlimited: false, balance: "10.00"}
+    }
+
+    for rate_limits <- [
+          camel_case_limits,
+          Map.new(camel_case_limits, fn {key, value} -> {String.to_atom(key), value} end),
+          snake_case_limits
+        ] do
+      rendered =
+        render_snapshot(
+          {:ok,
+           %{
+             running: [],
+             retrying: [],
+             codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+             rate_limits: rate_limits
+           }},
+          0.0
+        )
+        |> Snapshot.strip_ansi()
+
+      assert rendered =~ "Rate Limits: codex"
+      assert rendered =~ "primary 25% / 300m reset 1,900,000,000s"
+      assert rendered =~ "secondary 50% / 10080m reset 1,900,100,000s"
+      assert rendered =~ "credits available"
+    end
+  end
+
   defp render_snapshot(snapshot_data, tps) do
     StatusDashboard.format_snapshot_content_for_test(snapshot_data, tps, @terminal_columns)
   end
